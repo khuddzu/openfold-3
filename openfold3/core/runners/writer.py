@@ -291,13 +291,29 @@ class OF3OutputWriter(BasePredictionWriter):
                 cur_batch = tensor_tree_map(fetch_cur_batch, batch, strict_type=False)
                 torch.save(cur_batch, out_file)
                 del cur_batch
-
+            
             # Write out latent reps / raw model outputs
             if self.write_latent_outputs:
                 out_file = Path(f"{file_prefix}_latent_output.pt")
                 cur_output = tensor_tree_map(
                     fetch_cur_batch, outputs, strict_type=False
                 )
+
+                # Add ligand-specific embeddings (unpooled, raw token resolution)
+                # batch["is_ligand"]: (batch, n_tokens) bool mask
+                lig_mask  = batch["is_ligand"][b]   # (n_tokens,)
+                prot_mask = ~lig_mask                # (n_tokens,)
+
+                # Single representation: ligand tokens only
+                si = cur_output["si_trunk"]          # (1, n_tokens, 384)
+                cur_output["lig_si_trunk"] = si[:, lig_mask, :]          # (1, N_lig, 384)
+
+                # Pair representation: all ligand-involved blocks
+                zij = cur_output["zij_trunk"]        # (1, n_tokens, n_tokens, 128)
+                cur_output["lig_lig_zij"]  = zij[:, lig_mask, :, :][:, :, lig_mask,  :]  # (1, N_lig,  N_lig,  128)
+                cur_output["lig_prot_zij"] = zij[:, lig_mask, :, :][:, :, prot_mask, :]  # (1, N_lig,  N_prot, 128)
+                cur_output["prot_lig_zij"] = zij[:, prot_mask,:, :][:, :, lig_mask,  :]  # (1, N_prot, N_lig,  128)
+
                 torch.save(cur_output, out_file)
                 del cur_output
 
